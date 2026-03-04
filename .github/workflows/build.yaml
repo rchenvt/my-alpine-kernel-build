@@ -1,65 +1,68 @@
-name: Build NanoPi R2S Plus Matched Kernel
+name: Build NanoPi R2S Plus Matched Kernel (AArch64)
 on: [push, workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: alpine:3.23 # Match the target branch
-      options: --privileged
     steps:
-      - name: Install Build Dependencies
-        run: |
-          apk add alpine-sdk sudo git bash bc perl elfutils-dev openssl-dev squashfs-tools mkinitfs
-          adduser -D -G abuild builder
-          echo "builder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-          sudo -u builder abuild-keygen -a -i -n
-
       - name: Checkout Your Repository
         uses: actions/checkout@v4
 
-      - name: Checkout Aports (3.23-stable)
-        run: |
-          sudo -u builder git clone --depth 1 -b 3.23-stable \
-            https://gitlab.alpinelinux.org/alpine/aports.git /home/builder/aports
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
-      - name: Apply Custom Config and Patch
-        run: |
-          # Use your specific config from repo root
-          sudo -u builder cp config-lts.aarch64 /home/builder/aports/main/linux-lts/config-lts.aarch64
-          
-          cd /home/builder/aports/main/linux-lts
-          # Baking in the 'bridge' to the modloop: Loop, SD, SquashFS, and USB Storage
-          SYMBOLS="I2C_RK3X PINCTRL_ROCKCHIP MFD_RK8XX MFD_RK8XX_I2C MFD_RK8XX_SPI REGULATOR_RK808 COMMON_CLK_RK808 RTC_DRV_RK808 ROCKCHIP_PM_DOMAINS MMC_DW MMC_DW_ROCKCHIP BLK_DEV_LOOP SQUASHFS SQUASHFS_XZ SQUASHFS_ZLIB BLK_DEV_SD USB_STORAGE EXT4_FS FAT_FS VFAT_FS"
-          
-          for sym in $SYMBOLS; do
-            sudo -u builder sed -i "s/^.*CONFIG_$sym=.*$/CONFIG_$sym=y/" config-lts.aarch64
-          done
-          sudo -u builder abuild checksum
+      - name: Run Build in AArch64 Container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: arm64v8/alpine:3.23
+          options: --privileged -v ${{ github.workspace }}:/work
+          run: |
+            # 1. Install Build Dependencies
+            apk add alpine-sdk sudo git bash bc perl elfutils-dev openssl-dev squashfs-tools mkinitfs
+            adduser -D -G abuild builder
+            echo "builder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+            sudo -u builder abuild-keygen -a -i -n
 
-      - name: Compile Kernel and Install
-        run: |
-          cd /home/builder/aports/main/linux-lts
-          sudo -u builder abuild -r
-          # Install to /lib/modules so mkinitfs can find the NEW modules
-          sudo apk add /home/builder/packages/main/aarch64/linux-lts-*.apk --allow-untrusted
+            # 2. Checkout Aports (3.23-stable)
+            sudo -u builder git clone --depth 1 -b 3.23-stable \
+              https://gitlab.alpinelinux.org/alpine/aports.git /home/builder/aports
 
-      - name: Generate Matched Slim Initramfs
-        run: |
-          KVER=$(ls /lib/modules | grep "lts" | head -n 1)
-          mkdir -p /home/builder/output/dtbs
-          
-          # We only need 'base' because storage/usb/loop are now INSIDE vmlinuz.
-          # Network remains in the modloop to save initramfs space.
-          sudo mkinitfs -F "base" -o /home/builder/output/initramfs-lts $KVER
-          
-          # Collect Artifacts
-          find /home/builder/aports/main/linux-lts/src -name "vmlinuz" -exec cp {} /home/builder/output/vmlinuz-lts \;
-          find /home/builder/packages/main/aarch64/ -name "modloop-lts-*" -exec cp {} /home/builder/output/modloop-lts \;
-          find /home/builder/aports/main/linux-lts/src -name "rk3328-nanopi-r2s-plus.dtb" -exec cp {} /home/builder/output/dtbs/ \;
+            # 3. Apply Custom Config and Patch
+            sudo -u builder cp config-lts.aarch64 /home/builder/aports/main/linux-lts/config-lts.aarch64
+            
+            cd /home/builder/aports/main/linux-lts
+            SYMBOLS="I2C_RK3X PINCTRL_ROCKCHIP MFD_RK8XX MFD_RK8XX_I2C MFD_RK8XX_SPI REGULATOR_RK808 COMMON_CLK_RK808 RTC_DRV_RK808 ROCKCHIP_PM_DOMAINS MMC_DW MMC_DW_ROCKCHIP BLK_DEV_LOOP SQUASHFS SQUASHFS_XZ SQUASHFS_ZLIB BLK_DEV_SD USB_STORAGE EXT4_FS FAT_FS VFAT_FS NLS_CODEPAGE_437 NLS_ISO8859_1"
+            
+            for sym in $SYMBOLS; do
+              sudo -u builder sed -i "s/^.*CONFIG_$sym=.*$/CONFIG_$sym=y/" config-lts.aarch64
+            done
+            sudo -u builder abuild checksum
 
-      - name: Upload Matched Boot Files
+            # 4. Compile Kernel and Install
+            sudo -u builder abuild -r
+            sudo apk add /home/builder/packages/main/aarch64/linux-lts-*.apk --allow-untrusted
+
+            # 5. Generate Matched Slim Initramfs
+            KVER=$(ls /lib/modules | grep "lts" | head -n 1)
+            mkdir -p /work/output/dtbs
+            mkdir -p /work/output/apks
+            
+            sudo mkinitfs -F "base" -o /work/output/initramfs-lts $KVER
+            
+            # 6. Collect Artifacts
+            find /home/builder/aports/main/linux-lts/src -name "vmlinuz" -exec cp {} /work/output/vmlinuz-lts \;
+            find /home/builder/packages/main/aarch64/ -name "modloop-lts-*" -exec cp {} /work/output/modloop-lts \;
+            find /home/builder/aports/main/linux-lts/src -name "rk3328-nanopi-r2s-plus.dtb" -exec cp {} /work/output/dtbs/ \;
+            cp /home/builder/packages/main/aarch64/*.apk /work/output/apks/
+
+            # 7. Generate Checksums
+            cd /work/output
+            sha256sum vmlinuz-lts initramfs-lts modloop-lts dtbs/*.dtb > SHA256SUMS
+
+      - name: Upload Final Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: r2s-plus-matched-3.23
-          path: /home/builder/output/
+          name: r2s-plus-aarch64-matched-full
+          path: output/
