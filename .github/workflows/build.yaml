@@ -16,7 +16,7 @@ jobs:
       - name: Run Build in AArch64 Container
         uses: addnab/docker-run-action@v3
         with:
-          image: arm64v8/alpine:3.23
+          image: alpine:3.23
           options: --privileged -v ${{ github.workspace }}:/work
           run: |
             # 1. Install Build Dependencies
