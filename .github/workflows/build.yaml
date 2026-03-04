@@ -5,12 +5,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: alpine:3.21
+      image: alpine:3.23 # Match the target branch
       options: --privileged
     steps:
       - name: Install Build Dependencies
         run: |
-          apk add alpine-sdk sudo git bash bc perl libelf-dev openssl-dev squashfs-tools mkinitfs
+          apk add alpine-sdk sudo git bash bc perl elfutils-dev openssl-dev squashfs-tools mkinitfs
           adduser -D -G abuild builder
           echo "builder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
           sudo -u builder abuild-keygen -a -i -n
