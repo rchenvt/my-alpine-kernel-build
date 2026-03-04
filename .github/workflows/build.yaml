@@ -17,8 +17,10 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: alpine:3.23
-          options: --privileged -v ${{ github.workspace }}:/work
+          options: --platform linux/arm64 --privileged -v ${{ github.workspace }}:/work
           run: |
+            # 1. Verify Architecture (Should say aarch64)
+            uname -m
             # 1. Install Build Dependencies
             apk add alpine-sdk sudo git bash bc perl elfutils-dev openssl-dev squashfs-tools mkinitfs
             adduser -D -G abuild builder
@@ -30,7 +32,7 @@ jobs:
               https://gitlab.alpinelinux.org/alpine/aports.git /home/builder/aports
 
             # 3. Apply Custom Config and Patch
-            sudo -u builder cp config-lts.aarch64 /home/builder/aports/main/linux-lts/config-lts.aarch64
+            sudo -u builder cp /work/config-lts.aarch64 /home/builder/aports/main/linux-lts/config-lts.aarch64
             
             cd /home/builder/aports/main/linux-lts
             SYMBOLS="I2C_RK3X PINCTRL_ROCKCHIP MFD_RK8XX MFD_RK8XX_I2C MFD_RK8XX_SPI REGULATOR_RK808 COMMON_CLK_RK808 RTC_DRV_RK808 ROCKCHIP_PM_DOMAINS MMC_DW MMC_DW_ROCKCHIP BLK_DEV_LOOP SQUASHFS SQUASHFS_XZ SQUASHFS_ZLIB BLK_DEV_SD USB_STORAGE EXT4_FS FAT_FS VFAT_FS NLS_CODEPAGE_437 NLS_ISO8859_1"
